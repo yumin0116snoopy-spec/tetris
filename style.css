@@ -1,0 +1,144 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --accent: #38bdf8;
+  --text: #e2e8f0;
+  --grid: rgba(148, 163, 184, 0.2);
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(160deg, #020617 0%, #0f172a 50%, #1d2537 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+.layout {
+  display: grid;
+  gap: 2rem;
+  padding: 2rem;
+  max-width: 900px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .layout {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+.game-area {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.6);
+}
+
+canvas#board {
+  display: block;
+  width: 100%;
+  background: radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 60%),
+    var(--panel);
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  backdrop-filter: blur(4px);
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.overlay button {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.overlay button:hover {
+  transform: translateY(-2px);
+}
+
+.info-panel {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 24px;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1.5rem;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.1), 0 20px 50px rgba(15, 23, 42, 0.45);
+}
+
+.info-panel h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  letter-spacing: 0.08em;
+}
+
+.stats {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 1rem;
+  border-radius: 16px;
+  background: rgba(14, 30, 60, 0.7);
+}
+
+.stats div {
+  text-align: center;
+}
+
+.stats dt {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.stats dd {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.next,
+.hold {
+  background: rgba(14, 30, 60, 0.7);
+  padding: 1rem;
+  border-radius: 16px;
+}
+
+canvas#next,
+canvas#hold {
+  display: block;
+  margin: 0 auto;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 12px;
+}
+
+canvas#board::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+  pointer-events: none;
+}
