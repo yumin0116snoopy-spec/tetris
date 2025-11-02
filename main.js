@@ -80,6 +80,9 @@ const player = {
   type: null,
   hold: null,
   canHold: true,
+  score: 0,
+  lines: 0,
+  level: 0,
 };
 
 let queue = [];
@@ -271,6 +274,7 @@ function playerReset() {
   player.pos.y = 0;
   player.pos.x = Math.floor(COLS / 2) - Math.ceil(player.matrix[0].length / 2);
   player.canHold = true;
+  dropCounter = 0;
   updatePreview();
   if (collide(board, player)) {
     gameOver();
@@ -318,7 +322,11 @@ function hold() {
   player.pos.y = 0;
   player.pos.x = Math.floor(COLS / 2) - Math.ceil(player.matrix[0].length / 2);
   player.canHold = false;
+  dropCounter = 0;
   updatePreview();
+  if (collide(board, player)) {
+    gameOver();
+  }
 }
 
 function updateScore() {
