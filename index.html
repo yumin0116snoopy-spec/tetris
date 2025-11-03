@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>テトリス風ゲーム</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="layout">
+    <section class="game-area">
+      <canvas id="board" width="300" height="600" aria-label="ゲームボード"></canvas>
+      <div class="overlay" id="overlay">
+        <h2 id="state-message">準備完了</h2>
+        <button id="start-btn">スタート</button>
+      </div>
+    </section>
+
+    <section class="info-panel" aria-live="polite">
+      <h1>テトリス風ゲーム</h1>
+      <p>矢印キーで操作。スペースでハードドロップ、Cでホールド。</p>
+      <dl class="stats">
+        <div>
+          <dt>スコア</dt>
+          <dd id="score">0</dd>
+        </div>
+        <div>
+          <dt>ライン</dt>
+          <dd id="lines">0</dd>
+        </div>
+        <div>
+          <dt>レベル</dt>
+          <dd id="level">1</dd>
+        </div>
+      </dl>
+
+      <div class="next">
+        <h3>ネクスト</h3>
+        <canvas id="next" width="120" height="120"></canvas>
+      </div>
+
+      <div class="hold">
+        <h3>ホールド</h3>
+        <canvas id="hold" width="120" height="120"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <script src="main.js"></script>
+</body>
+</html>
