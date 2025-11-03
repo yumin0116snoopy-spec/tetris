@@ -1,334 +1,420 @@
-// ====== Canvas & Constants ======
-const boardCanvas = document.getElementById("board");
-const nextCanvas  = document.getElementById("next");
-const holdCanvas  = document.getElementById("hold");
-const ctx  = boardCanvas.getContext("2d");
-const nctx = nextCanvas.getContext("2d");
-const hctx = holdCanvas.getContext("2d");
-
 const COLS = 10;
 const ROWS = 20;
-const SIZE = 30; // 1マス 30px => 300x600
+const BLOCK = 30;
+const DROP_BASE = 1000;
 
-// UI
-const overlay = document.getElementById("overlay");
-const stateMsg = document.getElementById("state-message");
-const startBtn = document.getElementById("start-btn");
-const $score = document.getElementById("score");
-const $lines = document.getElementById("lines");
-const $level = document.getElementById("level");
+const canvas = document.getElementById('board');
+const context = canvas.getContext('2d');
+context.scale(BLOCK, BLOCK);
 
-// ====== Game State ======
-let board, piece, nextQueue, holdPiece, canHold;
-let score, lines, level;
-let dropCounter = 0;
-let dropInterval = 1000; // ms
-let lastTime = 0;
-let running = false;
-let gameOver = false;
+const nextCanvas = document.getElementById('next');
+const nextCtx = nextCanvas.getContext('2d');
+const holdCanvas = document.getElementById('hold');
+const holdCtx = holdCanvas.getContext('2d');
 
-// ====== Pieces ======
-const COLORS = {
-  I:"#22d3ee", J:"#60a5fa", L:"#fbbf24", O:"#fde047",
-  S:"#34d399", T:"#c084fc", Z:"#f87171", G:"#334155" // G:ghost
-};
+const overlay = document.getElementById('overlay');
+const startButton = document.getElementById('start-btn');
+const stateMessage = document.getElementById('state-message');
 
-// 各テトロミノの相対座標（回転の基準は [1,1] 付近）
+const scoreEl = document.getElementById('score');
+const linesEl = document.getElementById('lines');
+const levelEl = document.getElementById('level');
+
 const SHAPES = {
-  I:[[0,1],[1,1],[2,1],[3,1]],
-  J:[[0,0],[0,1],[1,1],[2,1]],
-  L:[[2,0],[0,1],[1,1],[2,1]],
-  O:[[1,0],[2,0],[1,1],[2,1]],
-  S:[[1,0],[2,0],[0,1],[1,1]],
-  T:[[1,0],[0,1],[1,1],[2,1]],
-  Z:[[0,0],[1,0],[1,1],[2,1]],
+  I: [
+    [0, 0, 0, 0],
+    [1, 1, 1, 1],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ],
+  J: [
+    [1, 0, 0],
+    [1, 1, 1],
+    [0, 0, 0],
+  ],
+  L: [
+    [0, 0, 1],
+    [1, 1, 1],
+    [0, 0, 0],
+  ],
+  O: [
+    [1, 1],
+    [1, 1],
+  ],
+  S: [
+    [0, 1, 1],
+    [1, 1, 0],
+    [0, 0, 0],
+  ],
+  T: [
+    [0, 1, 0],
+    [1, 1, 1],
+    [0, 0, 0],
+  ],
+  Z: [
+    [1, 1, 0],
+    [0, 1, 1],
+    [0, 0, 0],
+  ],
 };
 
-// 7バッグ方式でキュー生成
-function makeBag(){
-  const bag = ["I","J","L","O","S","T","Z"];
-  for (let i = bag.length-1; i>0; i--){
-    const j = Math.floor(Math.random()*(i+1));
+const COLORS = {
+  I: '#38bdf8',
+  J: '#6366f1',
+  L: '#f59e0b',
+  O: '#facc15',
+  S: '#22c55e',
+  T: '#a855f7',
+  Z: '#ef4444',
+};
+
+let board;
+let dropCounter = 0;
+let dropInterval = DROP_BASE;
+let lastTime = 0;
+let animationId;
+
+const player = {
+  pos: { x: 0, y: 0 },
+  matrix: null,
+  type: null,
+  hold: null,
+  canHold: true,
+  score: 0,
+  lines: 0,
+  level: 0,
+};
+
+let queue = [];
+
+function createMatrix(w, h) {
+  return Array.from({ length: h }, () => Array(w).fill(0));
+}
+
+function createPiece(type) {
+  return SHAPES[type].map((row) => row.slice());
+}
+
+function getRandomBag() {
+  const bag = Object.keys(SHAPES);
+  for (let i = bag.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
     [bag[i], bag[j]] = [bag[j], bag[i]];
   }
   return bag;
 }
 
-// ====== Helpers ======
-function createMatrix(w,h){
-  const m = [];
-  while(h--){
-    m.push(new Array(w).fill(0));
-  }
-  return m;
-}
-
-function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
-
-function drawCell(x,y,color,ghost=false){
-  const c = ghost ? COLORS.G : color;
-  ctx.fillStyle = c;
-  ctx.fillRect(x*SIZE, y*SIZE, SIZE, SIZE);
-  // 立体っぽい枠
-  ctx.strokeStyle = "rgba(255,255,255,.08)";
-  ctx.strokeRect(x*SIZE+0.5, y*SIZE+0.5, SIZE-1, SIZE-1);
-}
-
-function valid(pos, shape){
-  for (const [dx,dy] of shape){
-    const x = pos.x + dx;
-    const y = pos.y + dy;
-    if (x<0 || x>=COLS || y>=ROWS) return false;
-    if (y>=0 && board[y][x]) return false;
-  }
-  return true;
-}
-
-function rotate(shape){
-  // 90度時計回り回転： [x,y] -> [y, -x] を正規化
-  const rotated = shape.map(([x,y])=>[y, -x]);
-  // 左上がマイナスにならないようにオフセット
-  let minX = Math.min(...rotated.map(c=>c[0]));
-  let minY = Math.min(...rotated.map(c=>c[1]));
-  return rotated.map(([x,y])=>[x-minX, y-minY]);
-}
-
-// ウォールキック（簡易）：左右に1,2マス試す
-function tryRotate(p){
-  const r = rotate(p.shape);
-  const tests = [0,-1,1,-2,2];
-  for(const t of tests){
-    const newPos = {x:p.pos.x+t, y:p.pos.y};
-    if(valid(newPos, r)){ p.shape = r; p.pos = newPos; return; }
+function ensureQueue() {
+  while (queue.length < 5) {
+    queue = queue.concat(getRandomBag());
   }
 }
 
-// 盤面へ固定
-function merge(p){
-  for(const [dx,dy] of p.shape){
-    const x = p.pos.x+dx;
-    const y = p.pos.y+dy;
-    if(y<0){ // 天井到達＝ゲームオーバー
-      gameOver = true;
-      running = false;
-      showOverlay("ゲームオーバー");
-      return;
+function drawMatrix(matrix, offset, ctx = context) {
+  matrix.forEach((row, y) => {
+    row.forEach((value, x) => {
+      if (value !== 0) {
+        ctx.fillStyle = COLORS[value];
+        ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.4)';
+        ctx.lineWidth = 0.05;
+        ctx.strokeRect(x + offset.x, y + offset.y, 1, 1);
+      }
+    });
+  });
+}
+
+function drawBoardGrid() {
+  context.lineWidth = 0.02;
+  context.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+  for (let x = 0; x <= COLS; x += 1) {
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, ROWS);
+    context.stroke();
+  }
+  for (let y = 0; y <= ROWS; y += 1) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(COLS, y);
+    context.stroke();
+  }
+}
+
+function draw() {
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  drawMatrix(board, { x: 0, y: 0 });
+  drawMatrix(player.matrix, player.pos);
+  drawBoardGrid();
+}
+
+function merge(boardMatrix, playerPiece) {
+  playerPiece.matrix.forEach((row, y) => {
+    row.forEach((value, x) => {
+      if (value !== 0) {
+        boardMatrix[y + playerPiece.pos.y][x + playerPiece.pos.x] = value;
+      }
+    });
+  });
+}
+
+function collide(boardMatrix, playerPiece) {
+  const { matrix, pos } = playerPiece;
+  for (let y = 0; y < matrix.length; y += 1) {
+    for (let x = 0; x < matrix[y].length; x += 1) {
+      if (
+        matrix[y][x] !== 0 &&
+        (boardMatrix[y + pos.y] && boardMatrix[y + pos.y][x + pos.x]) !== 0
+      ) {
+        return true;
+      }
     }
-    board[y][x] = p.type;
-  }
-}
-
-// ライン消去とスコア
-function sweep(){
-  let cleared = 0;
-  outer: for(let y=ROWS-1; y>=0; y--){
-    for(let x=0; x<COLS; x++){
-      if(!board[y][x]) continue outer;
-    }
-    // 1行詰まり → 削除
-    const row = board.splice(y,1)[0].fill(0);
-    board.unshift(row);
-    cleared++;
-    y++; // 同じyを再チェック
-  }
-  if(cleared){
-    const table = [0,100,300,500,800]; // 消した行数ごとの加点
-    score += table[cleared]* (level);
-    lines += cleared;
-    if (Math.floor(lines/10)+1 > level){
-      level++;
-      dropInterval = Math.max(120, 1000 - (level-1)*80); // だんだん速く
-    }
-    updatePanel();
-  }
-}
-
-function hardDrop(){
-  while(move(0,1));
-  lock();
-}
-
-function move(dx,dy){
-  const newPos = {x:piece.pos.x+dx, y:piece.pos.y+dy};
-  if(valid(newPos, piece.shape)){
-    piece.pos = newPos; return true;
   }
   return false;
 }
 
-function lock(){
-  merge(piece);
-  if(gameOver){ return; }
-  sweep();
-  spawn();
-}
-
-// ゴースト（落下位置）
-function ghostY(){
-  const test = {pos:clone(piece.pos), shape:piece.shape};
-  while(valid({x:test.pos.x,y:test.pos.y+1}, test.shape)){
-    test.pos.y++;
+function rotate(matrix, dir) {
+  const rotated = matrix[0].map((_, index) => matrix.map((row) => row[index]));
+  if (dir > 0) {
+    return rotated.map((row) => row.reverse());
   }
-  return test.pos.y;
+  return rotated.reverse();
 }
 
-// ====== Spawn / Hold / Next ======
-function makePiece(type){
-  return {
-    type,
-    shape: clone(SHAPES[type]),
-    pos: {x:3, y:-2}
-  };
-}
-
-function spawn(){
-  if (nextQueue.length < 7) nextQueue = nextQueue.concat(makeBag());
-  const type = nextQueue.shift();
-  piece = makePiece(type);
-  canHold = true;
-  drawNext();
-}
-
-function hold(){
-  if(!canHold) return; // 1ターンに1回のみ
-  canHold = false;
-  if(!holdPiece){
-    holdPiece = piece.type;
-    spawn();
-  }else{
-    const tmp = holdPiece;
-    holdPiece = piece.type;
-    piece = makePiece(tmp);
-  }
-  drawHold();
-}
-
-function drawNext(){
-  nctx.clearRect(0,0,nextCanvas.width,nextCanvas.height);
-  const type = nextQueue[0];
-  if(!type) return;
-  drawMini(nctx, type);
-}
-function drawHold(){
-  hctx.clearRect(0,0,holdCanvas.width,holdCanvas.height);
-  if(!holdPiece) return;
-  drawMini(hctx, holdPiece);
-}
-
-function drawMini(context, type){
-  const shape = SHAPES[type];
-  const cell = 24;
-  // 形の幅高さを求め、中央寄せ
-  const xs = shape.map(c=>c[0]);
-  const ys = shape.map(c=>c[1]);
-  const w = Math.max(...xs)-Math.min(...xs)+1;
-  const h = Math.max(...ys)-Math.min(...ys)+1;
-  const offX = Math.floor((context.canvas.width/cell - w)/2);
-  const offY = Math.floor((context.canvas.height/cell - h)/2);
-  context.fillStyle = COLORS[type];
-  for(const [x,y] of shape){
-    context.fillRect((x+offX)*cell, (y+offY)*cell, cell, cell);
-    context.strokeStyle = "rgba(255,255,255,.1)";
-    context.strokeRect((x+offX)*cell+.5, (y+offY)*cell+.5, cell-1, cell-1);
-  }
-}
-
-// ====== Render ======
-function draw(){
-  ctx.clearRect(0,0,boardCanvas.width, boardCanvas.height);
-
-  // 盤面
-  for(let y=0; y<ROWS; y++){
-    for(let x=0; x<COLS; x++){
-      const t = board[y][x];
-      if(t){ drawCell(x,y,COLORS[t]); }
+function playerRotate(dir) {
+  const oldMatrix = player.matrix;
+  const rotated = rotate(oldMatrix, dir);
+  const pos = player.pos.x;
+  let offset = 1;
+  player.matrix = rotated;
+  while (collide(board, player)) {
+    player.pos.x += offset;
+    offset = -(offset + (offset > 0 ? 1 : -1));
+    if (offset > oldMatrix[0].length) {
+      player.matrix = oldMatrix;
+      player.pos.x = pos;
+      return;
     }
   }
+}
 
-  // ゴースト
-  const gy = ghostY();
-  for(const [dx,dy] of piece.shape){
-    const x = piece.pos.x+dx;
-    const y = gy+dy;
-    if(y>=0) drawCell(x,y,COLORS.G,true);
+function sweep() {
+  let rowCount = 0;
+  outer: for (let y = board.length - 1; y >= 0; y -= 1) {
+    for (let x = 0; x < board[y].length; x += 1) {
+      if (board[y][x] === 0) {
+        continue outer;
+      }
+    }
+    const row = board.splice(y, 1)[0].fill(0);
+    board.unshift(row);
+    y += 1;
+    rowCount += 1;
   }
-
-  // 現在のピース
-  for(const [dx,dy] of piece.shape){
-    const x = piece.pos.x+dx;
-    const y = piece.pos.y+dy;
-    if(y>=0) drawCell(x,y,COLORS[piece.type]);
+  if (rowCount > 0) {
+    const scoreTable = [0, 40, 100, 300, 1200];
+    player.score += scoreTable[rowCount] * (player.level + 1);
+    player.lines += rowCount;
+    player.level = Math.floor(player.lines / 10);
+    dropInterval = Math.max(120, DROP_BASE - player.level * 80);
+    updateScore();
   }
 }
 
-function update(time=0){
-  if(!running) return;
+function hardDrop() {
+  while (!collide(board, player)) {
+    player.pos.y += 1;
+  }
+  player.pos.y -= 1;
+  lockPiece();
+}
+
+function lockPiece() {
+  merge(board, player);
+  sweep();
+  playerReset();
+}
+
+function playerDrop() {
+  player.pos.y += 1;
+  if (collide(board, player)) {
+    player.pos.y -= 1;
+    lockPiece();
+  }
+  dropCounter = 0;
+}
+
+function playerMove(dir) {
+  player.pos.x += dir;
+  if (collide(board, player)) {
+    player.pos.x -= dir;
+  }
+}
+
+function update(time = 0) {
   const delta = time - lastTime;
   lastTime = time;
   dropCounter += delta;
-
-  if(dropCounter > dropInterval){
-    if(!move(0,1)){ lock(); }
-    dropCounter = 0;
+  if (dropCounter > dropInterval) {
+    playerDrop();
   }
   draw();
-  requestAnimationFrame(update);
+  animationId = requestAnimationFrame(update);
 }
 
-// ====== UI & Controls ======
-function updatePanel(){
-  $score.textContent = score;
-  $lines.textContent = lines;
-  $level.textContent = level;
-}
-
-function showOverlay(msg){
-  stateMsg.textContent = msg;
-  overlay.classList.remove("hidden");
-}
-function hideOverlay(){
-  overlay.classList.add("hidden");
-}
-
-function startGame(){
+function resetBoard() {
   board = createMatrix(COLS, ROWS);
-  nextQueue = makeBag();
-  holdPiece = null;
-  canHold = true;
-
-  score = 0; lines = 0; level = 1;
-  dropInterval = 1000;
-  updatePanel();
-
-  spawn();
-  drawHold();
-
-  gameOver = false;
-  running = true;
-  hideOverlay();
-  lastTime = 0; dropCounter = 0;
-  requestAnimationFrame(update);
 }
 
-// キー操作
-document.addEventListener("keydown", (e)=>{
-  if(!running) return;
-  switch(e.code){
-    case "ArrowLeft":  move(-1,0); break;
-    case "ArrowRight": move(1,0);  break;
-    case "ArrowDown":  if(move(0,1)) score += 1, updatePanel(); break;
-    case "ArrowUp":    tryRotate(piece); break;
-    case "Space":      hardDrop(); break;
-    case "KeyC":       hold(); break;
+function playerReset() {
+  ensureQueue();
+  const type = queue.shift();
+  player.matrix = createPiece(type).map((row) => row.map((value) => (value ? type : 0)));
+  player.type = type;
+  player.pos.y = 0;
+  player.pos.x = Math.floor(COLS / 2) - Math.ceil(player.matrix[0].length / 2);
+  player.canHold = true;
+  dropCounter = 0;
+  updatePreview();
+  if (collide(board, player)) {
+    gameOver();
   }
-});
+}
 
-startBtn.addEventListener("click", ()=>{
-  if(gameOver){ startBtn.textContent = "リスタート"; }
+function drawPreviewPiece(ctx, canvas, type) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!type) return;
+  const matrix = createPiece(type);
+  const cell = canvas.width / 4;
+  const offsetX = (4 - matrix[0].length) / 2;
+  const offsetY = (4 - matrix.length) / 2;
+  matrix.forEach((row, y) => {
+    row.forEach((value, x) => {
+      if (value) {
+        ctx.fillStyle = COLORS[type];
+        ctx.fillRect((x + offsetX) * cell, (y + offsetY) * cell, cell, cell);
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+        ctx.lineWidth = Math.max(1, cell * 0.08);
+        ctx.strokeRect((x + offsetX) * cell, (y + offsetY) * cell, cell, cell);
+      }
+    });
+  });
+}
+
+function updatePreview() {
+  ensureQueue();
+  drawPreviewPiece(nextCtx, nextCanvas, queue[0]);
+  drawPreviewPiece(holdCtx, holdCanvas, player.hold);
+}
+
+function hold() {
+  if (!player.canHold) return;
+  const currentType = player.type;
+  if (player.hold) {
+    const swapType = player.hold;
+    player.hold = currentType;
+    player.matrix = createPiece(swapType).map((row) => row.map((value) => (value ? swapType : 0)));
+    player.type = swapType;
+  } else {
+    player.hold = currentType;
+    playerReset();
+  }
+  player.pos.y = 0;
+  player.pos.x = Math.floor(COLS / 2) - Math.ceil(player.matrix[0].length / 2);
+  player.canHold = false;
+  dropCounter = 0;
+  updatePreview();
+  if (collide(board, player)) {
+    gameOver();
+  }
+}
+
+function updateScore() {
+  scoreEl.textContent = player.score;
+  linesEl.textContent = player.lines;
+  levelEl.textContent = player.level + 1;
+}
+
+function setupControls() {
+  document.addEventListener('keydown', (event) => {
+    if (overlay.classList.contains('hidden')) {
+      switch (event.code) {
+        case 'ArrowLeft':
+          event.preventDefault();
+          playerMove(-1);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          playerMove(1);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          playerDrop();
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          playerRotate(1);
+          break;
+        case 'KeyZ':
+          event.preventDefault();
+          playerRotate(-1);
+          break;
+        case 'Space':
+          event.preventDefault();
+          hardDrop();
+          break;
+        case 'KeyC':
+          event.preventDefault();
+          hold();
+          break;
+        default:
+          break;
+      }
+    }
+  });
+}
+
+function startGame() {
+  overlay.classList.add('hidden');
+  cancelAnimationFrame(animationId);
+  resetBoard();
+  queue = [];
+  ensureQueue();
+  player.score = 0;
+  player.lines = 0;
+  player.level = 0;
+  player.hold = null;
+  playerReset();
+  updateScore();
+  dropInterval = DROP_BASE;
+  lastTime = 0;
+  dropCounter = 0;
+  updatePreview();
+  update();
+}
+
+function gameOver() {
+  cancelAnimationFrame(animationId);
+  overlay.classList.remove('hidden');
+  stateMessage.textContent = `ゲームオーバー! スコア: ${player.score}`;
+  startButton.textContent = 'もう一度';
+}
+
+startButton.addEventListener('click', () => {
+  stateMessage.textContent = '準備完了';
+  startButton.textContent = 'スタート';
   startGame();
 });
 
-// 初期表示
-showOverlay("スタートを押してください");
-drawNext();
-drawHold();
+setupControls();
+
+// 初期描画
+resetBoard();
+player.matrix = createPiece('I').map((row) => row.map((value) => (value ? 'I' : 0)));
+player.type = 'I';
+player.pos = { x: 3, y: 3 };
+player.score = 0;
+player.lines = 0;
+player.level = 0;
+draw();
+updatePreview();
